@@ -195,7 +195,7 @@ def fetch_all_activities(access_token):
 @app.route("/")
 def home():
     return """
-    <h2>Strava Ride Search</h2>
+    <h2>Activity Finder</h2>
     <p><a href="/authorize">Connect with Strava</a></p>
     """
 
@@ -293,6 +293,7 @@ def activities():
 
     selected_types = request.args.getlist("sport_type")
     sort_by = request.args.get("sort_by", "date_desc")
+    sync_msg = request.args.get("sync_msg", "")
 
     preferred_order = [
         "Ride",
@@ -495,7 +496,7 @@ def activities():
     html = f"""
     <html>
     <head>
-        <title>Strava Ride Search</title>
+        <title>Activity Finder</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
             body {{
@@ -655,6 +656,22 @@ def activities():
             .back-to-top:hover {{
                 background: #e64a17;
             }}
+            
+            .sync-button {{
+                display: inline-block;
+                padding: 10px 16px;
+                background-color: #fc4c02;
+                color: white;
+                text-decoration: none;
+                border-radius: 6px;
+                font-weight: bold;
+                border: 2px solid #d84300;
+                margin-bottom: 12px;
+            }}
+
+            .sync-button:hover {{
+                background-color: #e64300;
+            }}
 
             @media (max-width: 768px) {{
                 body {{
@@ -669,12 +686,35 @@ def activities():
                     flex-direction: column;
                     gap: 8px;
                 }}
-                input, select {{
+                input:not([type="checkbox"]), select {{
                     width: 100%;
                     box-sizing: border-box;
                 }}
+                .sub-option input[type="checkbox"] {{
+                    width: auto;
+                    margin-right: 6px;
+                }}
+
+                .types-box input[type="checkbox"] {{
+                    width: auto;
+                }}
                 .types-box {{
                     max-height: 260px;
+                }}
+                .types-box .type-item {{
+                    display: flex;
+                    align-items: center;
+                }}
+
+                .types-box .type-item label {{
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-weight: normal;
+                }}
+
+                .types-box .type-item input {{
+                    margin: 0;
                 }}
                 .type-item {{
                     display: block;
@@ -790,9 +830,10 @@ def activities():
         </script>
     </head>
     <body>
-        <h2>Your Strava Activities</h2>
+        <h2>Activity Finder</h2>
         
-        <p><a href="/sync_recent">Sync Latest Activities</a></p>
+        <p><a href="/sync_recent" class="sync-button">Sync Latest Activities</a></p>
+        {'<p style="color: green; font-weight: bold;">' + escape(sync_msg) + '</p>' if sync_msg else ''}
 
         <form method="get" action="/activities">
             <div class="section">
@@ -843,6 +884,38 @@ def activities():
                     <input type="date" name="end_date" value="{escape(end_date)}">
                 </div>
             </div>
+            
+                <div class="section">
+                <div class="row">
+                    <label>Sport Type</label>
+
+                    <label class="sub-option">
+                        <input type="checkbox" id="rides_only" onclick="toggleRidesOnly(this)">
+                        Rides Only
+                    </label>
+
+                    <label class="sub-option">
+                        <input type="checkbox" onclick="toggleAllSportTypes(this)">
+                        Select / Deselect All
+                    </label>
+                </div>
+                
+                <div class="types-box">
+    """
+
+    for s_type in sport_types:
+        html += f"""
+            <div class="type-item">
+                <label style="font-weight: normal;">
+                    <input type="checkbox" name="sport_type" value="{escape(s_type)}" {selected_type_html(s_type)}>
+                    {escape(s_type)}
+                </label>
+            </div>
+        """
+
+    html += f"""
+                </div>
+            </div>                
 
             <div class="section">
                 <div class="filter-grid">
@@ -931,36 +1004,6 @@ def activities():
                 </div>
             </div>
 
-            <div class="section">
-                <div class="row">
-                    <label>Sport Type</label>
-
-                    <label class="sub-option">
-                        <input type="checkbox" id="rides_only" onclick="toggleRidesOnly(this)">
-                        Rides Only
-                    </label>
-
-                    <label class="sub-option">
-                        <input type="checkbox" onclick="toggleAllSportTypes(this)">
-                        Select / Deselect All
-                    </label>
-                </div>
-                <div class="types-box">
-    """
-
-    for s_type in sport_types:
-        html += f"""
-            <div class="type-item">
-                <label style="font-weight: normal;">
-                    <input type="checkbox" name="sport_type" value="{escape(s_type)}" {selected_type_html(s_type)}>
-                    {escape(s_type)}
-                </label>
-            </div>
-        """
-
-    html += f"""
-                </div>
-            </div>
 
             <div class="section">
                 <div class="row">
@@ -1150,14 +1193,15 @@ def fetch_recent_activities(access_token, after_epoch, per_page=50):
 
     return batch
 
-def get_latest_activity_epoch():
+def get_latest_activity_epoch(user_id):
     conn = get_db_connection()
     cur = conn.cursor()
 
     cur.execute("""
         SELECT MAX(start_date)
         FROM activities
-    """)
+        WHERE user_id = %s
+    """, (user_id,))
 
     result = cur.fetchone()[0]
 
@@ -1177,16 +1221,25 @@ def sync_recent():
     if not access_token or not athlete_id:
         return redirect(url_for("home"))
 
-    latest_epoch = get_latest_activity_epoch()
+    latest_epoch = get_latest_activity_epoch(athlete_id)
     recent_activities = fetch_recent_activities(access_token, latest_epoch)
 
     if isinstance(recent_activities, dict) and recent_activities.get("message"):
         return f"<pre>{escape(str(recent_activities))}</pre>"
 
+    new_count = 0
+
     if isinstance(recent_activities, list):
+        new_count = len(recent_activities)
         save_activities_to_db(athlete_id, recent_activities)
 
-    return redirect(url_for("activities"))
+    if new_count == 0:
+        return redirect(url_for("activities", sync_msg="No New Activities Found"))
+
+    if new_count == 1:
+        return redirect(url_for("activities", sync_msg="1 New Activity Loaded"))
+
+    return redirect(url_for("activities", sync_msg=f"{new_count} New Activities Loaded"))
 
 
 if __name__ == "__main__":
