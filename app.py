@@ -195,7 +195,7 @@ def fetch_all_activities(access_token):
 @app.route("/")
 def home():
     return """
-    <h2>Activity Finder</h2>
+    <h2>RideFind3000</h2>
     <p><a href="/authorize">Connect with Strava</a></p>
     """
 
@@ -496,7 +496,7 @@ def activities():
     html = f"""
     <html>
     <head>
-        <title>Activity Finder</title>
+        <title>RideFind3000</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
             body {{
@@ -830,7 +830,7 @@ def activities():
         </script>
     </head>
     <body>
-        <h2>Activity Finder</h2>
+        <h2>RideFind3000</h2>
         
         <p><a href="/sync_recent" class="sync-button">Sync Latest Activities</a></p>
         {'<p style="color: green; font-weight: bold;">' + escape(sync_msg) + '</p>' if sync_msg else ''}
@@ -1172,6 +1172,16 @@ def activities():
         </div>
 
         <button class="back-to-top" onclick="scrollToTop()">↑</button>
+        
+        <hr style="margin-top:30px;">
+        <p style="font-size:12px; color:#666;">
+        RideFind3000 uses the Strava API but is not affiliated, endorsed, or certified by Strava.
+        </p>
+        
+        <p style="font-size:12px;">
+        <a href="/privacy">Privacy Policy</a>
+        </p>
+        
     </body>
     </html>
     """
@@ -1240,6 +1250,16 @@ def sync_recent():
         return redirect(url_for("activities", sync_msg="1 New Activity Loaded"))
 
     return redirect(url_for("activities", sync_msg=f"{new_count} New Activities Loaded"))
+
+@app.route("/privacy")
+def privacy():
+    return """
+    <h2>Privacy Policy</h2>
+    <p>RideFind3000 uses the Strava API to access activity data that you authorize.</p>
+    <p>We store activity data in order to provide search and filtering functionality.</p>
+    <p>We do not sell or share user data.</p>
+    <p>You may revoke access at any time from your Strava account settings.</p>
+    """
 
 
 if __name__ == "__main__":
