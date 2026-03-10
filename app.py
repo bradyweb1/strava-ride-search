@@ -791,6 +791,8 @@ def activities():
     </head>
     <body>
         <h2>Your Strava Activities</h2>
+        
+        <p><a href="/sync_recent">Sync Latest Activities</a></p>
 
         <form method="get" action="/activities">
             <div class="section">
@@ -1132,6 +1134,59 @@ def activities():
     """
 
     return html
+
+def fetch_recent_activities(access_token, after_epoch, per_page=50):
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    response = requests.get(
+        f"https://www.strava.com/api/v3/athlete/activities?per_page={per_page}&page=1&after={after_epoch}",
+        headers=headers,
+    )
+
+    batch = response.json()
+
+    if isinstance(batch, dict) and batch.get("message"):
+        return batch
+
+    return batch
+
+def get_latest_activity_epoch():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT MAX(start_date)
+        FROM activities
+    """)
+
+    result = cur.fetchone()[0]
+
+    cur.close()
+    conn.close()
+
+    if result is None:
+        return 0
+
+    return int(result.timestamp())
+
+@app.route("/sync_recent")
+def sync_recent():
+    access_token = session.get("access_token")
+    athlete_id = session.get("athlete_id")
+
+    if not access_token or not athlete_id:
+        return redirect(url_for("home"))
+
+    latest_epoch = get_latest_activity_epoch()
+    recent_activities = fetch_recent_activities(access_token, latest_epoch)
+
+    if isinstance(recent_activities, dict) and recent_activities.get("message"):
+        return f"<pre>{escape(str(recent_activities))}</pre>"
+
+    if isinstance(recent_activities, list):
+        save_activities_to_db(athlete_id, recent_activities)
+
+    return redirect(url_for("activities"))
 
 
 if __name__ == "__main__":
