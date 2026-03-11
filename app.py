@@ -214,7 +214,7 @@ def home():
     </p>
 
     <p style="font-size:18px;">
-    <a href="/privacy">Privacy Policy</a>
+    <a href="/privacy">Privacy Policy & Information</a>
     </p>
 
     </div>
@@ -1209,7 +1209,7 @@ def activities():
         </p>
         
         <p style="font-size:12px;">
-        <a href="/privacy">Privacy Policy</a>
+        <a href="/privacy">Privacy Policy & Information</a>
         </p>
         
     </body>
@@ -1284,11 +1284,12 @@ def sync_recent():
 @app.route("/privacy")
 def privacy():
     return """
-    <h2>Privacy Policy</h2>
+    <h2>Privacy Policy & Information</h2>
     <p>RideFind3000 uses the Strava API to access activity data that you authorize.</p>
     <p>We store activity data in order to provide search and filtering functionality.</p>
     <p>We do not sell or share user data.</p>
     <p>You may revoke access at any time from your Strava account settings.</p>
+    <p>To request deletion of stored RideFind3000 data, contact: ridefind3000@mail.com</p>
     """
 
 
