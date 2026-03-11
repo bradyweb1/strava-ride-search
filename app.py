@@ -195,8 +195,29 @@ def fetch_all_activities(access_token):
 @app.route("/")
 def home():
     return """
-    <h2>RideFind3000</h2>
-    <p><a href="/authorize">Connect with Strava</a></p>
+    <div style="font-family:Arial, sans-serif; max-width:600px; margin:40px auto; text-align:center;">
+
+    <h2 style="font-size:34px;">RideFind3000</h2>
+
+    <p style="font-size:24px;">
+    <a href="/authorize">Connect with Strava</a>
+    </p>
+
+    <hr style="margin-top:30px;">
+
+    <p style="font-size:18px; color:#666;">
+    Powered by Strava
+    </p>
+
+    <p style="font-size:18px; color:#666;">
+    RideFind3000 uses the Strava API but is not affiliated, endorsed, or certified by Strava.
+    </p>
+
+    <p style="font-size:18px;">
+    <a href="/privacy">Privacy Policy</a>
+    </p>
+
+    </div>
     """
 
 
@@ -1050,6 +1071,10 @@ def activities():
         </form>
 
         <p><strong>{len(filtered)}</strong> matching activities out of <strong>{len(all_activities)}</strong></p>
+        
+        <p style="margin-top:10px; font-weight:bold;">
+        Select an activity below to view it on Strava.
+        </p>
 
         <div class="table-container">
         <table>
@@ -1172,6 +1197,11 @@ def activities():
         </div>
 
         <button class="back-to-top" onclick="scrollToTop()">↑</button>
+        
+        <hr style="margin-top:30px;">
+        <p style="font-size:12px; color:#666;">
+        Powered by Strava
+        </p>
         
         <hr style="margin-top:30px;">
         <p style="font-size:12px; color:#666;">
