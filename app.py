@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 from urllib.parse import urlencode
 from html import escape
+import threading
 
 load_dotenv()
 
@@ -16,6 +17,7 @@ CLIENT_SECRET = os.environ["CLIENT_SECRET"]
 REDIRECT_URI = os.environ["REDIRECT_URI"]
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+active_imports = set()
 
 
 def get_db_connection():
@@ -165,8 +167,31 @@ def safe_float(value):
     try:
         return float(value)
     except ValueError:
-        return None
+        return None    
 
+def fetch_first_activities(access_token, total_to_fetch=100):
+    headers = {"Authorization": f"Bearer {access_token}"}
+    activities = []
+    page = 1
+
+    while len(activities) < total_to_fetch:
+        response = requests.get(
+            f"https://www.strava.com/api/v3/athlete/activities?per_page=200&page={page}",
+            headers=headers,
+        )
+
+        batch = response.json()
+
+        if isinstance(batch, dict) and batch.get("message"):
+            return batch
+
+        if not batch:
+            break
+
+        activities.extend(batch)
+        page += 1
+
+    return activities[:total_to_fetch]
 
 def fetch_all_activities(access_token):
     headers = {"Authorization": f"Bearer {access_token}"}
@@ -191,6 +216,55 @@ def fetch_all_activities(access_token):
 
     return all_activities
 
+def background_import_all_activities(user_id, access_token):
+    global active_imports
+
+    if user_id in active_imports:
+        return
+
+    active_imports.add(user_id)
+
+    try:
+        headers = {"Authorization": f"Bearer {access_token}"}
+        page = 1
+
+        while True:
+            response = requests.get(
+                f"https://www.strava.com/api/v3/athlete/activities?per_page=200&page={page}",
+                headers=headers,
+            )
+
+            batch = response.json()
+
+            if isinstance(batch, dict) and batch.get("message"):
+                print("Background import error:", batch)
+                break
+
+            if not batch:
+                break
+
+            save_activities_to_db(user_id, batch)
+            page += 1
+
+        print(f"Background import finished for user {user_id}")
+
+    except Exception as e:
+        print(f"Background import crashed for user {user_id}: {e}")
+
+    finally:
+        active_imports.discard(user_id)
+
+@app.route("/import_status")
+def import_status():
+    user_id = session.get("user_id")
+
+    if not user_id:
+        return {"status": "unknown"}
+
+    if user_id in active_imports:
+        return {"status": "importing"}
+    else:
+        return {"status": "complete"}
 
 @app.route("/")
 def home():
@@ -254,29 +328,159 @@ def exchange_token():
         return f"<pre>{escape(str(token_data))}</pre>"
 
     session["access_token"] = token_data["access_token"]
-    session["athlete_id"] = token_data["athlete"]["id"]
+    session["user_id"] = token_data["athlete"]["id"]
 
-    return redirect(url_for("activities"))
+    return redirect(url_for("loading"))
 
+@app.route("/loading")
+def loading():
+    return """
+    <html>
+    <head>
+        <title>Loading Recent Activities</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                background: #f7f7f7;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+            }
+            .box {
+                background: white;
+                padding: 35px;
+                border-radius: 12px;
+                box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+                max-width: 500px;
+                text-align: center;
+            }
+            h1 {
+                margin-top: 0;
+                font-size: 44px;
+            }
+            p {
+                font-size: 26px;
+                color: #444;
+                line-height: 1.5;
+            }
+            .small {
+                margin-top: 25px;
+                font-size: 20px;
+                color: #777;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <h1>Loading your recent Strava activities...</h1>
+            <p>Please hang tight while we import your most recent activities.</p>
+            <p>This usually takes less than a minute.</p>
+            <div class="small" id="status">Starting import...</div>
+        </div>
+
+        <script>
+            window.onload = async function() {
+                try {
+                    document.getElementById("status").innerText = "Importing recent activities...";
+                    await fetch("/first_import", { credentials: "same-origin" });
+                    window.location.href = "/activities?sync_msg=Recent+activities+loaded";
+                } catch (error) {
+                    document.getElementById("status").innerText = "Something went wrong. Please reload the page.";
+                }
+            };
+        </script>
+    </body>
+    </html>
+    """
+
+@app.route("/first_import")
+def first_import():
+    access_token = session.get("access_token")
+    user_id = session.get("user_id")
+
+    if not access_token or not user_id:
+        return redirect(url_for("home"))
+
+    existing_activities = load_activities_from_db(user_id)
+
+    if not existing_activities:
+        starter_activities = fetch_first_activities(access_token, 100)
+
+        if isinstance(starter_activities, dict) and starter_activities.get("message"):
+            return f"<pre>{escape(str(starter_activities))}</pre>"
+
+        if isinstance(starter_activities, list):
+            save_activities_to_db(user_id, starter_activities)
+
+            threading.Thread(
+                target=background_import_all_activities,
+                args=(user_id, access_token),
+                daemon=True
+            ).start()
+
+    return "OK"
 
 @app.route("/activities")
 def activities():
     access_token = session.get("access_token")
-    athlete_id = session.get("athlete_id")
+    user_id = session.get("user_id")
 
-    if not access_token or not athlete_id:
+    if not access_token or not user_id:
         return redirect(url_for("home"))
 
-    all_activities = load_activities_from_db(athlete_id)
+    all_activities = load_activities_from_db(user_id)
+    
+    # Determine the current background import status
+    is_importing = user_id in active_imports
+    
+    # Check if the URL indicates the import just finished and refreshed
+    import_just_finished = request.args.get("import_just_finished") == "true"
+    
+    banner_html = ""
+
+    if is_importing:
+        # If an import is actively running, show the "importing" banner
+        banner_html = """
+        <div id="import-banner" style="
+        background:#eaf3ff;
+        border:1px solid #bcd4ff;
+        padding:12px;
+        margin-bottom:15px;
+        border-radius:8px;
+        font-family:Arial;
+        font-size:18px;">
+        Importing the rest of your Strava history in the background...
+        </div>
+        """
+    elif import_just_finished:
+        # If the import has finished AND the page reloaded with the flag, show a static complete banner.
+        # This banner will not have the auto-refresh instruction.
+        banner_html = """
+        <div id="import-banner" style="
+        background:#e7f7ea;
+        border:1px solid #b9e2c0;
+        padding:12px;
+        margin-bottom:15px;
+        border-radius:8px;
+        font-family:Arial;
+        font-size:18px;">
+        Full Strava activity history imported.
+        </div>
+        """
+    
+    if user_id not in active_imports and len(all_activities) < 500:
+        threading.Thread(
+            target=background_import_all_activities,
+            args=(user_id, access_token),
+            daemon=True
+        ).start()
+
 
     if not all_activities:
-        all_activities = fetch_all_activities(access_token)
-
-        if isinstance(all_activities, dict) and all_activities.get("message"):
-            return f"<pre>{escape(str(all_activities))}</pre>"
-
-        if isinstance(all_activities, list):
-            save_activities_to_db(athlete_id, all_activities)
+        return redirect(url_for("first_import"))
 
     keyword = request.args.get("keyword", "").strip().lower()
     year = request.args.get("year", "").strip()
@@ -851,7 +1055,9 @@ def activities():
         </script>
     </head>
     <body>
-        <h2>RideFind3000</h2>
+    {banner_html}
+        
+    <h2>RideFind3000</h2>
         
         <p><a href="/sync_recent" class="sync-button">Sync Latest Activities</a></p>
         {'<p style="color: green; font-weight: bold;">' + escape(sync_msg) + '</p>' if sync_msg else ''}
@@ -1211,7 +1417,73 @@ def activities():
         <p style="font-size:12px;">
         <a href="/privacy">Privacy Policy & Information</a>
         </p>
+
+    <script>
+    function checkImportStatus() {
+        fetch("/import_status")
+            .then(response => response.json())
+            .then(data => {
+                const banner = document.getElementById("import-banner");
+                const urlParams = new URLSearchParams(window.location.search);
+
+                if (data.status === "complete") {
+                    // Only set the auto-refresh if this is the *first* time we're seeing "complete"
+                    // on this page load (i.e., 'import_just_finished' is not yet in the URL)
+                    if (banner && !urlParams.get("import_just_finished")) {
+                        banner.style.background = "#e7f7ea";
+                        banner.style.border = "1px solid #b9e2c0";
+                        banner.innerHTML =
+                            "Full Strava activity history imported.<br><br>" +
+                            "This page will refresh in 10 seconds. " +
+                            "<button onclick='location.reload()'>Refresh now</button>";
+
+                        // After 10 seconds, reload the page and add the 'import_just_finished' flag
+                        setTimeout(() => {
+                            const currentUrl = new URL(window.location.href);
+                            currentUrl.searchParams.set("import_just_finished", "true");
+                            window.location.href = currentUrl.toString();
+                        }, 10000);
+                    }
+                    // If 'import_just_finished' is already true, or no banner, do nothing.
+                    // The server-rendered HTML will handle the final "complete" banner state.
+                } else if (data.status === "importing") {
+                    // Still importing, so keep polling
+                    if (banner) {
+                        banner.style.background = "#eaf3ff";
+                        banner.style.border = "1px solid #bcd4ff";
+                        banner.innerHTML = "Importing the rest of your Strava history in the background...";
+                    }
+                    setTimeout(checkImportStatus, 4000);
+                }
+            })
+            .catch(error => {
+                console.log("Import status check failed:", error);
+                const banner = document.getElementById("import-banner");
+                if (banner) {
+                    banner.innerHTML = "Error checking import status. Please try refreshing.";
+                    banner.style.background = "#ffeaea";
+                    banner.style.border = "1px solid #ffbcbc";
+                }
+            });
+    }
+
+    // Only start checking import status if the 'import_just_finished' flag is NOT present in the URL
+    // and if there's an 'import-banner' element to potentially update.
+    // This prevents the polling loop from starting if the import has already completed and refreshed.
+    window.addEventListener("DOMContentLoaded", function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (!urlParams.get("import_just_finished") && document.getElementById("import-banner")) {
+            setTimeout(checkImportStatus, 4000);
+        }
         
+        // Existing event listeners and function calls that are not related to the import status polling
+        syncRidesOnlyCheckbox();
+        document.querySelectorAll('input[name="sport_type"]').forEach(cb => {
+            cb.addEventListener("change", syncRidesOnlyCheckbox);
+        });
+    });
+    </script>
+
     </body>
     </html>
     """
@@ -1256,12 +1528,12 @@ def get_latest_activity_epoch(user_id):
 @app.route("/sync_recent")
 def sync_recent():
     access_token = session.get("access_token")
-    athlete_id = session.get("athlete_id")
+    user_id = session.get("user_id")
 
-    if not access_token or not athlete_id:
+    if not access_token or not user_id:
         return redirect(url_for("home"))
 
-    latest_epoch = get_latest_activity_epoch(athlete_id)
+    latest_epoch = get_latest_activity_epoch(user_id)
     recent_activities = fetch_recent_activities(access_token, latest_epoch)
 
     if isinstance(recent_activities, dict) and recent_activities.get("message"):
@@ -1271,7 +1543,7 @@ def sync_recent():
 
     if isinstance(recent_activities, list):
         new_count = len(recent_activities)
-        save_activities_to_db(athlete_id, recent_activities)
+        save_activities_to_db(user_id, recent_activities)
 
     if new_count == 0:
         return redirect(url_for("activities", sync_msg="No New Activities Found"))
