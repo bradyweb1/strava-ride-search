@@ -377,7 +377,7 @@ def loading():
         <div class="box">
             <h1>Loading your recent Strava activities...</h1>
             <p>Please hang tight while we import your most recent activities.</p>
-            <p>This usually takes less than a minute.</p>
+            <p>This usually takes less than a 30 seconds.</p>
             <div class="small" id="status">Starting import...</div>
         </div>
 
@@ -452,7 +452,7 @@ def activities():
         border-radius:8px;
         font-family:Arial;
         font-size:18px;">
-        Importing the rest of your Strava history in the background...
+        Importing the rest of your Strava history in the background.<br>Give us up to a few minutes, but we will let you know when it's finished.<br>This is a one-time process.
         </div>
         """
     elif import_just_finished:
@@ -1451,7 +1451,7 @@ def activities():
                     if (banner) {
                         banner.style.background = "#eaf3ff";
                         banner.style.border = "1px solid #bcd4ff";
-                        banner.innerHTML = "Importing the rest of your Strava history in the background...";
+                        banner.innerHTML = "Importing the rest of your Strava history in the background.<br>Give us up to a few minutes, but we will let you know when it's finished.<br>This is a one-time process.";
                     }
                     setTimeout(checkImportStatus, 4000);
                 }
