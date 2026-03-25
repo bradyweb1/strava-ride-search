@@ -1,0 +1,59 @@
+    <html>
+    <head>
+        <title>Loading Recent Activities</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                background: #f7f7f7;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+            }
+            .box {
+                background: white;
+                padding: 35px;
+                border-radius: 12px;
+                box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+                max-width: 500px;
+                text-align: center;
+            }
+            h1 {
+                margin-top: 0;
+                font-size: 44px;
+            }
+            p {
+                font-size: 26px;
+                color: #444;
+                line-height: 1.5;
+            }
+            .small {
+                margin-top: 25px;
+                font-size: 20px;
+                color: #777;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <h1>Loading your recent Strava activities...</h1>
+            <p>Please hang tight while we import your most recent activities.</p>
+            <p>This usually takes less than a 30 seconds.</p>
+            <div class="small" id="status">Starting import...</div>
+        </div>
+
+        <script>
+            window.onload = async function() {
+                try {
+                    document.getElementById("status").innerText = "Importing recent activities...";
+                    await fetch("/first_import", { credentials: "same-origin" });
+                    window.location.href = "/activities?sync_msg=Recent+activities+loaded";
+                } catch (error) {
+                    document.getElementById("status").innerText = "Something went wrong. Please reload the page.";
+                }
+            };
+        </script>
+    </body>
+    </html>
