@@ -1,6 +1,7 @@
 name: Keep RideFind3000 Alive
  
 on:
+  workflow_dispatch:
   schedule:
     # Runs every 5 minutes between 11:00 AM UTC and 5:00 AM UTC
     # That's 6:00 AM to midnight CDT (UTC-5)
